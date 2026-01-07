@@ -80,12 +80,9 @@ class ExpensePayment(AccountsController):
 
             gl_entries.append(gl)
 
-        # 2) Credit مقابل المصروفات
-        # بدون inter: Credit = البنك
-        # مع inter: Credit = To Account (أو From حسب تصميمك)
+
         credit_account_for_expenses = self.paid_from_account
-        # if is_inter:
-        #     credit_account_for_expenses = to_acc
+
 
         gl_entries.append(
             self.get_gl_dict(
@@ -102,7 +99,6 @@ class ExpensePayment(AccountsController):
             )
         )
 
-        # 3) لو inter: قيد تحويل داخلي من البنك إلى From (Dr From / Cr Bank)
         if is_inter:
             gl_entries.append(
                 self.get_gl_dict(

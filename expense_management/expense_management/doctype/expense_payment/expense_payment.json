@@ -21,6 +21,8 @@
   "expenses",
   "section_break_beet",
   "total_amount",
+  "reference_doctype",
+  "reference",
   "accounting_dimensions_section",
   "dimension_col_break",
   "cost_center",
@@ -148,13 +150,27 @@
    "label": "To Account",
    "mandatory_depends_on": "eval:doc.is_inter_account",
    "options": "Account"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Reference Doctype",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference",
+   "options": "reference_doctype",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-08 01:03:25.111843",
+ "modified": "2026-01-08 02:03:14.684064",
  "modified_by": "Administrator",
  "module": "Expense Management",
  "name": "Expense Payment",
