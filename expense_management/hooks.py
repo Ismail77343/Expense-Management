@@ -7,6 +7,10 @@ app_license = "mit"
 
 # Apps
 # ------------------
+accounting_dimension_doctypes = [
+    "Expense Payment",
+    "Child Expense Payment",
+]
 
 # required_apps = []
 
