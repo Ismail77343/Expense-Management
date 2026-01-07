@@ -15,13 +15,15 @@ class ExpensePayment(AccountsController):
         if not self.expenses:
             frappe.throw("Add at least one expense row")
 
-        self.total_amount = 0
+        total = 0
         for i, row in enumerate(self.expenses, start=1):
             if not row.expense_account:
                 frappe.throw(f"Row #{i}: Expense Account is required")
             if flt(row.amount) <= 0:
                 frappe.throw(f"Row #{i}: Amount must be > 0")
-            self.total_amount += flt(row.amount)
+            total += flt(row.amount)
+
+        self.total_amount = total
 
     def on_submit(self):
         self._make_gl_entries(cancel=0)
@@ -36,20 +38,31 @@ class ExpensePayment(AccountsController):
     def build_gl_preview(self):
         dims = frappe.get_all("Accounting Dimension", filters={"disabled": 0}, pluck="fieldname")
 
-        total_amount = 0
-        for row in self.expenses or []:
-            total_amount += flt(row.amount)
+        total_amount = sum(flt(r.amount) for r in (self.expenses or []))
+        if total_amount <= 0:
+            return []
 
         gl_entries = []
 
-        # Debit lines
+        is_inter = int(getattr(self, "is_inter_account", 0) or 0)
+        from_acc = getattr(self, "from_account", None)
+        to_acc = getattr(self, "to_account", None)
+
+        if is_inter and (not from_acc or not to_acc):
+            frappe.throw("From Account and To Account are required when Inter Account is enabled")
+
+        # 1) Debit: expense lines
         for row in self.expenses or []:
+            amt = flt(row.amount)
+            if amt <= 0:
+                continue
+
             gl = self.get_gl_dict(
                 {
                     "account": row.expense_account,
-                    "debit": flt(row.amount),
+                    "debit": amt,
                     "credit": 0,
-                    "debit_in_account_currency": flt(row.amount),
+                    "debit_in_account_currency": amt,
                     "credit_in_account_currency": 0,
                     "cost_center": getattr(row, "cost_center", None),
                     "project": getattr(row, "project", None),
@@ -67,23 +80,59 @@ class ExpensePayment(AccountsController):
 
             gl_entries.append(gl)
 
-        # Credit bank/cash total
+        # 2) Credit مقابل المصروفات
+        # بدون inter: Credit = البنك
+        # مع inter: Credit = To Account (أو From حسب تصميمك)
+        credit_account_for_expenses = self.paid_from_account
+        # if is_inter:
+        #     credit_account_for_expenses = to_acc
+
         gl_entries.append(
             self.get_gl_dict(
                 {
-                    "account": self.paid_from_account,
+                    "account": credit_account_for_expenses,
                     "debit": 0,
                     "credit": flt(total_amount),
                     "debit_in_account_currency": 0,
                     "credit_in_account_currency": flt(total_amount),
-					"cost_center": self.cost_center,
-					"project": self.project,
                     "posting_date": self.posting_date,
                     "company": self.company,
                     "remarks": self.remarks,
                 }
             )
         )
+
+        # 3) لو inter: قيد تحويل داخلي من البنك إلى From (Dr From / Cr Bank)
+        if is_inter:
+            gl_entries.append(
+                self.get_gl_dict(
+                    {
+                        "account": to_acc,
+                        "debit": flt(total_amount),
+                        "credit": 0,
+                        "debit_in_account_currency": flt(total_amount),
+                        "credit_in_account_currency": 0,
+                        "posting_date": self.posting_date,
+                        "company": self.company,
+                        "remarks": self.remarks,
+                    }
+                )
+            )
+
+            gl_entries.append(
+                self.get_gl_dict(
+                    {
+                        "account": from_acc,
+                        "debit": 0,
+                        "credit": flt(total_amount),
+                        "debit_in_account_currency": 0,
+                        "credit_in_account_currency": flt(total_amount),
+                        "posting_date": self.posting_date,
+                        "company": self.company,
+                        "remarks": self.remarks,
+                    }
+                )
+            )
 
         return gl_entries
 

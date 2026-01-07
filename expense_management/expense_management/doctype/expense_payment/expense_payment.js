@@ -10,7 +10,43 @@ frappe.ui.form.on('Expense Payment', {
         }
       };
     });
+    frm.set_query('from_account', function () {
+      return {
+        filters: {
+          company: frm.doc.company,
+          is_group: 0,
+          root_type: ['in', ['Asset']]
+        }
+      };
+    });
+    frm.set_query('to_account', function () {
+      return {
+        filters: {
+          company: frm.doc.company,
+          is_group: 0,
+          root_type: ['in', ['Asset']]
+        }
+      };
+    });
 
+    // Cost Center داخل الجدول (اختياري)
+    frm.set_query('cost_center', function () {
+      return {
+        filters: {
+          company: frm.doc.company,
+          is_group: 0
+        }
+      };
+    });
+
+    // Project داخل الجدول (اختياري)
+    frm.set_query('project', function () {
+      return {
+        filters: {
+          company: frm.doc.company
+        }
+      };
+    });
     // Expense Account داخل الجدول: Expense فقط + نفس الشركة + Leaf
     frm.set_query('expense_account', 'expenses', function () {
       return {
@@ -42,47 +78,70 @@ frappe.ui.form.on('Expense Payment', {
     });
   },
 
-  refresh(frm) {
+    refresh(frm) {
     frm.trigger('calc_total');
-    frm.add_custom_button(__('Preview GL'), async () => {
-      const r = await frappe.call({
-        method: 'expense_management.expense_management.doctype.expense_payment.expense_payment.preview_gl_entries',
-        args: { doc: frm.doc }
-      });
 
-      const rows = (r.message || []).map(d => ({
-        account: d.account,
-        debit: d.debit || 0,
-        credit: d.credit || 0,
-        cost_center: d.cost_center,
-        project: d.project
-      }));
+    // امسح الأزرار القديمة (عشان ما تتكرر)
+    frm.clear_custom_buttons();
 
-      const dialog = new frappe.ui.Dialog({
-        title: __('GL Preview'),
-        size: 'large',
-        fields: [
-          {
-            fieldtype: 'Table',
-            fieldname: 'gl',
-            label: 'GL Entries',
-            cannot_add_rows: 1,
-            in_place_edit: 0,
-            data: rows,
+    // ✅ إذا Draft: اعرض Preview GL
+    if (frm.doc.docstatus === 0) {
+        frm.add_custom_button(__('Preview GL'), async () => {
+        const r = await frappe.call({
+            method: 'expense_management.expense_management.doctype.expense_payment.expense_payment.preview_gl_entries',
+            args: { doc: JSON.stringify(frm.doc) }   // مهم
+        });
+
+        const rows = (r.message || []).map(d => ({
+            account: d.account,
+            debit: d.debit || 0,
+            credit: d.credit || 0,
+            cost_center: d.cost_center,
+            project: d.project
+        }));
+
+        const dialog = new frappe.ui.Dialog({
+            title: __('GL Preview'),
+            size: 'large',
             fields: [
-              { fieldtype: 'Link', fieldname: 'account', label: 'Account', options: 'Account', in_list_view: 1, read_only: 1 },
-              { fieldtype: 'Currency', fieldname: 'debit', label: 'Debit', in_list_view: 1, read_only: 1 },
-              { fieldtype: 'Currency', fieldname: 'credit', label: 'Credit', in_list_view: 1, read_only: 1 },
-              { fieldtype: 'Link', fieldname: 'cost_center', label: 'Cost Center', options: 'Cost Center', in_list_view: 1, read_only: 1 },
-              { fieldtype: 'Link', fieldname: 'project', label: 'Project', options: 'Project', in_list_view: 1, read_only: 1 }
+            {
+                fieldtype: 'Table',
+                fieldname: 'gl',
+                label: 'GL Entries',
+                cannot_add_rows: 1,
+                in_place_edit: 0,
+                data: rows,
+                fields: [
+                { fieldtype: 'Link', fieldname: 'account', label: 'Account', options: 'Account', in_list_view: 1, read_only: 1 },
+                { fieldtype: 'Currency', fieldname: 'debit', label: 'Debit', in_list_view: 1, read_only: 1 },
+                { fieldtype: 'Currency', fieldname: 'credit', label: 'Credit', in_list_view: 1, read_only: 1 },
+                { fieldtype: 'Link', fieldname: 'cost_center', label: 'Cost Center', options: 'Cost Center', in_list_view: 1, read_only: 1 },
+                { fieldtype: 'Link', fieldname: 'project', label: 'Project', options: 'Project', in_list_view: 1, read_only: 1 }
+                ]
+            }
             ]
-          }
-        ]
-      });
+        });
 
-      dialog.show();
-    });
-  },
+        dialog.show();
+        }, __('View'));
+
+        return;
+    }
+
+    // ✅ إذا Submitted: افتح General Ledger للمستند
+    if (frm.doc.docstatus === 1) {
+        frm.add_custom_button(__('Accounting Ledger'), () => {
+        frappe.set_route('query-report', 'General Ledger', {
+            company: frm.doc.company,
+            voucher_no: frm.doc.name,
+            from_date: frm.doc.posting_date,
+            to_date: frm.doc.posting_date
+        });
+        }, __('View'));
+
+       
+    }
+    },
 
   company(frm) {
     // عند تغيير الشركة: امسح الحسابات المرتبطة لتفادي حسابات لشركة ثانية

@@ -14,6 +14,9 @@
   "paid_from_account",
   "column_break_tdgl",
   "remarks",
+  "is_inter_account",
+  "from_account",
+  "to_account",
   "expenses_section",
   "expenses",
   "section_break_beet",
@@ -123,13 +126,35 @@
    "fieldtype": "Table",
    "label": "Expenses",
    "options": "Child Expense Payment"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_inter_account",
+   "fieldtype": "Check",
+   "label": "Is Inter Account"
+  },
+  {
+   "depends_on": "eval:doc.is_inter_account",
+   "fieldname": "from_account",
+   "fieldtype": "Link",
+   "label": "From Account",
+   "mandatory_depends_on": "eval:doc.is_inter_account",
+   "options": "Account"
+  },
+  {
+   "depends_on": "eval:doc.is_inter_account",
+   "fieldname": "to_account",
+   "fieldtype": "Link",
+   "label": "To Account",
+   "mandatory_depends_on": "eval:doc.is_inter_account",
+   "options": "Account"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-08 00:32:53.618599",
+ "modified": "2026-01-08 01:03:25.111843",
  "modified_by": "Administrator",
  "module": "Expense Management",
  "name": "Expense Payment",
