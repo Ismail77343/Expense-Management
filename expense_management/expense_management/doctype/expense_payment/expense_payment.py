@@ -28,7 +28,11 @@ class ExpensePayment(AccountsController):
     def on_submit(self):
         self._make_gl_entries(cancel=0)
 
+    def before_cancel(self):
+        self.ignore_linked_doctypes = ("GL Entry",)
+
     def on_cancel(self):
+        # اعكس/الغِ GL Entries
         self._make_gl_entries(cancel=1)
 
     def _make_gl_entries(self, cancel=0):
