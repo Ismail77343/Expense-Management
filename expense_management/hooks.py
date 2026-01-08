@@ -12,6 +12,7 @@ accounting_dimension_doctypes = [
     "Child Expense Payment",
 ]
 
+
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
