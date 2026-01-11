@@ -27,13 +27,16 @@ class ExpensePayment(AccountsController):
 
     def on_submit(self):
         self._make_gl_entries(cancel=0)
+        self._update_related_payment_request_status()
 
     def before_cancel(self):
         self.ignore_linked_doctypes = ("GL Entry",)
+        
 
     def on_cancel(self):
         # اعكس/الغِ GL Entries
         self._make_gl_entries(cancel=1)
+        self._update_related_payment_request_status()
 
     def _make_gl_entries(self, cancel=0):
         gl_entries = self.build_gl_preview()
@@ -135,6 +138,94 @@ class ExpensePayment(AccountsController):
             )
 
         return gl_entries
+
+    def _update_related_payment_request_status(self):
+        """
+        Update Payment Request status based on total submitted Expense Payments for the same reference.
+        - Paid if total_paid >= requested
+        - Partially Paid if total_paid > 0
+        """
+
+        # لازم يكون عندنا مرجع
+        ref_dt = self.get("reference_doctype")
+        ref_dn = self.get("reference")
+        if not ref_dt or not ref_dn:
+            return
+
+        # هات كل Payment Requests submitted اللي لنفس المرجع
+        pr_names = frappe.get_all(
+            "Payment Request",
+            filters={
+                "docstatus": 1,
+                "reference_doctype": ref_dt,
+                "reference_name": ref_dn,
+            },
+            pluck="name",
+        )
+        if not pr_names:
+            return
+
+        # اجمع كل Expense Payments submitted لنفس المرجع
+        total_paid = self._get_total_paid_for_reference(ref_dt, ref_dn)
+
+        for pr_name in pr_names:
+            pr = frappe.get_doc("Payment Request", pr_name)
+
+            required = flt(
+                pr.get("requested_amount")
+                or pr.get("grand_total")
+                or pr.get("amount")
+                or 0
+            )
+
+            # إذا مبلغ PR غير واضح، لا تغير
+            if required <= 0:
+                continue
+
+            new_status = pr.get("status")
+            eps = 0.01
+
+            if total_paid + eps >= required:
+                new_status = "Paid"
+            elif total_paid > eps:
+                new_status = "Partially Paid"
+            else:
+                # رجّعه لحالة مناسبة (اختياري)
+                if pr.get("status") in ["Paid", "Partially Paid"]:
+                    new_status = "Initiated"
+
+            if new_status and new_status != pr.get("status"):
+                pr.db_set("status", new_status, update_modified=True)
+
+            # لو عندكم حقل مخصص للمدفوع (اختياري)
+            if hasattr(pr, "paid_amount"):
+                pr.db_set("paid_amount", total_paid, update_modified=False)
+
+    def _get_total_paid_for_reference(self, ref_dt, ref_dn):
+        """
+        Sum total_amount from all submitted Expense Payment docs for same reference.
+        """
+        ep_names = frappe.get_all(
+            "Expense Payment",
+            filters={
+                "docstatus": 1,
+                "reference_doctype": ref_dt,
+                "reference": ref_dn,
+            },
+            pluck="name",
+        )
+
+        total = 0.0
+        for name in ep_names:
+            ep = frappe.get_doc("Expense Payment", name)
+
+            # لو عندك total_amount في الرأس (واضح من كودك)
+            if ep.get("total_amount") is not None:
+                total += flt(ep.get("total_amount"))
+            else:
+                total += sum(flt(r.get("amount")) for r in (ep.get("expenses") or []))
+
+        return flt(total)
 
 
 @frappe.whitelist()

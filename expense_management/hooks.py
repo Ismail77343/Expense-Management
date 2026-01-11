@@ -11,7 +11,13 @@ accounting_dimension_doctypes = [
     "Expense Payment",
     "Child Expense Payment",
 ]
-
+doc_events = {
+    "Payment Request": {
+        "on_submit": "expense_management.payment_request_hooks.sync_payment_request_status",
+        "on_cancel": "expense_management.payment_request_hooks.sync_payment_request_status",
+        "on_update_after_submit": "expense_management.payment_request_hooks.sync_payment_request_status",
+    }
+}
 
 # required_apps = []
 
