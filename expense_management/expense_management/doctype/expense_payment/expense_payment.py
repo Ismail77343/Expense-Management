@@ -42,6 +42,47 @@ class ExpensePayment(AccountsController):
         gl_entries = self.build_gl_preview()
         make_gl_entries(gl_entries, cancel=cancel, merge_entries=False)
 
+    def _get_expense_account_from_dimension_table(self, row, dims):
+        """
+        يرجع حساب المصروف من جدول المابينج الخاص بـ Accounting Dimension
+        باستخدام قيم الـ dimensions الموجودة في سطر المصروف.
+        """
+
+        # ✅ عدّل هذي الثلاثة حسب جدولك الحقيقي
+        MAP_CHILD_DTYPE = "Accounting Dimension Account"   # مثال
+        MAP_DIM_VALUE_FIELD = "dimension_value"            # مثال
+        MAP_ACCOUNT_FIELD = "expense_account"              # مثال
+
+        # امشِ على كل dimension fieldname معرف في النظام (branch, department, cost_center, project...)
+        for dim_fieldname in dims:
+            dim_value = getattr(row, dim_fieldname, None)
+            if not dim_value:
+                continue
+
+            # اسم الـ Accounting Dimension record اللي يمثل هذا fieldname
+            dim_name = frappe.db.get_value(
+                "Accounting Dimension",
+                {"disabled": 0, "fieldname": dim_fieldname},
+                "name",
+            )
+            if not dim_name:
+                continue
+
+            filters = {
+                "parent": dim_name,               # child مربوط بـ Accounting Dimension
+                MAP_DIM_VALUE_FIELD: dim_value,
+            }
+
+            # لو جدول المابينج فيه company (اختياري)
+            if frappe.get_meta(MAP_CHILD_DTYPE).has_field("company"):
+                filters["company"] = self.company
+
+            acc = frappe.db.get_value(MAP_CHILD_DTYPE, filters, MAP_ACCOUNT_FIELD)
+            if acc:
+                return acc
+
+        return None
+
     def build_gl_preview(self):
         dims = frappe.get_all("Accounting Dimension", filters={"disabled": 0}, pluck="fieldname")
 
@@ -59,14 +100,26 @@ class ExpensePayment(AccountsController):
             frappe.throw("From Account and To Account are required when Inter Account is enabled")
 
         # 1) Debit: expense lines
-        for row in self.expenses or []:
+        for i, row in enumerate(self.expenses or [], start=1):
             amt = flt(row.amount)
             if amt <= 0:
                 continue
 
+            # ✅ هنا التغيير الرئيسي: حساب المصروف من جدول Accounting Dimension
+            expense_acc = self._get_expense_account_from_dimension_table(row, dims)
+
+            # لو ما لقى mapping، تقدر تخليه fallback على row.expense_account أو تمنع الحفظ
+            if not expense_acc:
+                frappe.throw(
+                    f"Row #{i}: No Expense Account mapping found from Accounting Dimension table "
+                    f"for the selected dimensions in this row."
+                )
+                # أو لو تبي fallback:
+                # expense_acc = row.expense_account
+
             gl = self.get_gl_dict(
                 {
-                    "account": row.expense_account,
+                    "account": expense_acc,
                     "debit": amt,
                     "credit": 0,
                     "debit_in_account_currency": amt,
@@ -87,9 +140,8 @@ class ExpensePayment(AccountsController):
 
             gl_entries.append(gl)
 
-
+        # 2) Credit: bank/cash from main doctype (زي ما هو)
         credit_account_for_expenses = self.paid_from_account
-
 
         gl_entries.append(
             self.get_gl_dict(
@@ -138,6 +190,7 @@ class ExpensePayment(AccountsController):
             )
 
         return gl_entries
+
 
     def _update_related_payment_request_status(self):
         """

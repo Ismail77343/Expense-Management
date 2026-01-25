@@ -127,7 +127,8 @@
    "fieldname": "expenses",
    "fieldtype": "Table",
    "label": "Expenses",
-   "options": "Child Expense Payment"
+   "options": "Child Expense Payment",
+   "reqd": 1
   },
   {
    "default": "0",
@@ -166,11 +167,10 @@
    "read_only": 1
   }
  ],
- "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-08 02:03:14.684064",
+ "modified": "2026-01-22 15:55:00.011407",
  "modified_by": "Administrator",
  "module": "Expense Management",
  "name": "Expense Payment",
@@ -204,7 +204,6 @@
    "write": 1
   }
  ],
- "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
