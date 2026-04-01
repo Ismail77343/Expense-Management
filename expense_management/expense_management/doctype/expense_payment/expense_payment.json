@@ -17,17 +17,26 @@
   "is_inter_account",
   "from_account",
   "to_account",
-  "expenses_section",
-  "expenses",
-  "section_break_beet",
-  "total_amount",
-  "reference_doctype",
-  "reference",
   "accounting_dimensions_section",
   "dimension_col_break",
   "cost_center",
   "column_break_ksdi",
-  "project"
+  "project",
+  "expenses_section",
+  "expenses",
+  "section_break_jbxk",
+  "expense_taxes_and_charges",
+  "bank_charges_section",
+  "apply_bank_charge",
+  "bank_charge_amount",
+  "bank_charge_account",
+  "section_break_beet",
+  "total_amount",
+  "reference_doctype",
+  "reference",
+  "column_break_gamx",
+  "grand_total",
+  "total_tax_and_charges"
  ],
  "fields": [
   {
@@ -165,12 +174,65 @@
    "label": "Reference",
    "options": "reference_doctype",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_jbxk",
+   "fieldtype": "Section Break",
+   "label": "Taxes and Charges"
+  },
+  {
+   "fieldname": "expense_taxes_and_charges",
+   "fieldtype": "Table",
+   "label": "Expense Taxes and Charges",
+   "options": "Expense Taxes and Charges"
+  },
+  {
+   "fieldname": "bank_charges_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Charges"
+  },
+  {
+   "default": "0",
+   "fieldname": "apply_bank_charge",
+   "fieldtype": "Check",
+   "label": "Apply Bank Charge"
+  },
+  {
+   "depends_on": "eval:doc.apply_bank_charge",
+   "fieldname": "bank_charge_amount",
+   "fieldtype": "Currency",
+   "label": "Bank Charge Amount",
+   "mandatory_depends_on": "eval:doc.apply_bank_charge"
+  },
+  {
+   "depends_on": "eval:doc.apply_bank_charge",
+   "fieldname": "bank_charge_account",
+   "fieldtype": "Link",
+   "label": "Bank Charge Account",
+   "mandatory_depends_on": "eval:doc.apply_bank_charge",
+   "options": "Account"
+  },
+  {
+   "fieldname": "column_break_gamx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_tax_and_charges",
+   "fieldtype": "Currency",
+   "label": "Total Tax And Charges",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-01-22 15:55:00.011407",
+ "modified": "2026-04-01 10:32:09.240135",
  "modified_by": "Administrator",
  "module": "Expense Management",
  "name": "Expense Payment",

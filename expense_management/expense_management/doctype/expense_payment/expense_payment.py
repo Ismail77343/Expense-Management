@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 from erpnext.controllers.accounts_controller import AccountsController
 from erpnext.accounts.general_ledger import make_gl_entries
 
@@ -24,6 +24,8 @@ class ExpensePayment(AccountsController):
             total += flt(row.amount)
 
         self.total_amount = total
+        self._set_tax_totals()
+        self._validate_bank_charge()
 
     def on_submit(self):
         self._make_gl_entries(cancel=0)
@@ -83,21 +85,103 @@ class ExpensePayment(AccountsController):
 
         return None
 
-    def build_gl_preview(self):
-        dims = frappe.get_all("Accounting Dimension", filters={"disabled": 0}, pluck="fieldname")
+    def _resolve_expense_account(self, row, dims, row_idx):
+        expense_acc = self._get_expense_account_from_dimension_table(row, dims)
+        if not expense_acc:
+            frappe.throw(
+                f"Row #{row_idx}: No Expense Account mapping found from Accounting Dimension table "
+                f"for the selected dimensions in this row."
+            )
 
-        total_amount = sum(flt(r.amount) for r in (self.expenses or []))
-        if total_amount <= 0:
-            return []
+        return expense_acc
 
-        gl_entries = []
+    def _set_tax_totals(self):
+        total_amount = sum(flt(row.amount) for row in (self.expenses or []))
+        total_tax = 0
 
+        for idx, row in enumerate(self.expense_taxes_and_charges or [], start=1):
+            tax_amount = flt(getattr(row, "tax_amount", 0))
+            account_head = getattr(row, "account_head", None)
+
+            if tax_amount and not account_head:
+                frappe.throw(f"Tax Row #{idx}: Account Head is required")
+
+            row.total = total_amount + tax_amount
+            total_tax += tax_amount
+
+        self.total_amount = total_amount
+        self.total_tax_and_charges = total_tax
+        self.grand_total = total_amount + total_tax
+
+    def _validate_bank_charge(self):
+        if not cint(self.apply_bank_charge or 0):
+            self.bank_charge_amount = 0
+            self.bank_charge_account = None
+            return
+
+        if not self.bank_charge_account and self.company:
+            self.bank_charge_account = frappe.db.get_value(
+                "Company", self.company, "default_charges_account"
+            )
+
+        if flt(self.bank_charge_amount) <= 0:
+            frappe.throw("Bank Charge Amount must be greater than zero")
+
+        if not self.bank_charge_account:
+            frappe.throw("Bank Charge Account is required when Apply Bank Charge is enabled")
+
+    def _append_inter_account_gl_entries(self, gl_entries, total_credit, dims):
         is_inter = int(getattr(self, "is_inter_account", 0) or 0)
         from_acc = getattr(self, "from_account", None)
         to_acc = getattr(self, "to_account", None)
 
-        if is_inter and (not from_acc or not to_acc):
+        if not is_inter:
+            return
+
+        if not from_acc or not to_acc:
             frappe.throw("From Account and To Account are required when Inter Account is enabled")
+
+        gl_entries.append(
+            self.get_gl_dict(
+                {
+                    "account": to_acc,
+                    "debit": flt(total_credit),
+                    "credit": 0,
+                    "debit_in_account_currency": flt(total_credit),
+                    "credit_in_account_currency": 0,
+                    "posting_date": self.posting_date,
+                    "company": self.company,
+                    "remarks": self.remarks,
+                }
+            )
+        )
+
+        gl_entries.append(
+            self.get_gl_dict(
+                {
+                    "account": from_acc,
+                    "debit": 0,
+                    "credit": flt(total_credit),
+                    "debit_in_account_currency": 0,
+                    "credit_in_account_currency": flt(total_credit),
+                    "posting_date": self.posting_date,
+                    "company": self.company,
+                    "remarks": self.remarks,
+                }
+            )
+        )
+
+    def build_gl_preview(self):
+        dims = frappe.get_all("Accounting Dimension", filters={"disabled": 0}, pluck="fieldname")
+
+        total_amount = sum(flt(r.amount) for r in (self.expenses or []))
+        total_tax_amount = sum(flt(r.tax_amount) for r in (self.expense_taxes_and_charges or []))
+        grand_total = total_amount + total_tax_amount
+
+        if grand_total <= 0:
+            return []
+
+        gl_entries = []
 
         # 1) Debit: expense lines
         for i, row in enumerate(self.expenses or [], start=1):
@@ -105,17 +189,7 @@ class ExpensePayment(AccountsController):
             if amt <= 0:
                 continue
 
-            # ✅ هنا التغيير الرئيسي: حساب المصروف من جدول Accounting Dimension
-            expense_acc = self._get_expense_account_from_dimension_table(row, dims)
-
-            # لو ما لقى mapping، تقدر تخليه fallback على row.expense_account أو تمنع الحفظ
-            if not expense_acc:
-                frappe.throw(
-                    f"Row #{i}: No Expense Account mapping found from Accounting Dimension table "
-                    f"for the selected dimensions in this row."
-                )
-                # أو لو تبي fallback:
-                # expense_acc = row.expense_account
+            expense_acc = self._resolve_expense_account(row, dims, i)
 
             gl = self.get_gl_dict(
                 {
@@ -148,9 +222,9 @@ class ExpensePayment(AccountsController):
                 {
                     "account": credit_account_for_expenses,
                     "debit": 0,
-                    "credit": flt(total_amount),
+                    "credit": flt(grand_total),
                     "debit_in_account_currency": 0,
-                    "credit_in_account_currency": flt(total_amount),
+                    "credit_in_account_currency": flt(grand_total),
                     "posting_date": self.posting_date,
                     "company": self.company,
                     "remarks": self.remarks,
@@ -158,15 +232,43 @@ class ExpensePayment(AccountsController):
             )
         )
 
-        if is_inter:
+        # 2.1) Debit: tax lines
+        for row in self.expense_taxes_and_charges or []:
+            tax_amount = flt(getattr(row, "tax_amount", 0))
+            if tax_amount <= 0:
+                continue
+
             gl_entries.append(
                 self.get_gl_dict(
                     {
-                        "account": to_acc,
-                        "debit": flt(total_amount),
+                        "account": row.account_head,
+                        "debit": tax_amount,
                         "credit": 0,
-                        "debit_in_account_currency": flt(total_amount),
+                        "debit_in_account_currency": tax_amount,
                         "credit_in_account_currency": 0,
+                        "cost_center": getattr(row, "cost_center", None),
+                        "project": getattr(row, "project", None),
+                        "posting_date": self.posting_date,
+                        "company": self.company,
+                        "remarks": self.remarks,
+                    },
+                    item=row,
+                )
+            )
+
+        # 2.2) Bank charge
+        bank_charge_amount = flt(self.bank_charge_amount)
+        if cint(self.apply_bank_charge or 0) and bank_charge_amount > 0:
+            gl_entries.append(
+                self.get_gl_dict(
+                    {
+                        "account": self.bank_charge_account,
+                        "debit": bank_charge_amount,
+                        "credit": 0,
+                        "debit_in_account_currency": bank_charge_amount,
+                        "credit_in_account_currency": 0,
+                        "cost_center": getattr(self, "cost_center", None),
+                        "project": getattr(self, "project", None),
                         "posting_date": self.posting_date,
                         "company": self.company,
                         "remarks": self.remarks,
@@ -177,17 +279,19 @@ class ExpensePayment(AccountsController):
             gl_entries.append(
                 self.get_gl_dict(
                     {
-                        "account": from_acc,
+                        "account": self.paid_from_account,
                         "debit": 0,
-                        "credit": flt(total_amount),
+                        "credit": bank_charge_amount,
                         "debit_in_account_currency": 0,
-                        "credit_in_account_currency": flt(total_amount),
+                        "credit_in_account_currency": bank_charge_amount,
                         "posting_date": self.posting_date,
                         "company": self.company,
                         "remarks": self.remarks,
                     }
                 )
             )
+
+        self._append_inter_account_gl_entries(gl_entries, grand_total, dims)
 
         return gl_entries
 
@@ -256,7 +360,7 @@ class ExpensePayment(AccountsController):
 
     def _get_total_paid_for_reference(self, ref_dt, ref_dn):
         """
-        Sum total_amount from all submitted Expense Payment docs for same reference.
+        Sum grand_total from all submitted Expense Payment docs for same reference.
         """
         ep_names = frappe.get_all(
             "Expense Payment",
@@ -272,11 +376,7 @@ class ExpensePayment(AccountsController):
         for name in ep_names:
             ep = frappe.get_doc("Expense Payment", name)
 
-            # لو عندك total_amount في الرأس (واضح من كودك)
-            if ep.get("total_amount") is not None:
-                total += flt(ep.get("total_amount"))
-            else:
-                total += sum(flt(r.get("amount")) for r in (ep.get("expenses") or []))
+            total += flt(ep.get("grand_total") or ep.get("total_amount") or 0)
 
         return flt(total)
 
