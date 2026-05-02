@@ -232,6 +232,22 @@ frappe.ui.form.on('Expense Payment', {
     frm.refresh_field('expense_taxes_and_charges');
   },
 
+  expenses_add(frm) {
+    frm.trigger('calc_total');
+  },
+
+  expenses_remove(frm) {
+    frm.trigger('calc_total');
+  },
+
+  expense_taxes_and_charges_add(frm) {
+    frm.trigger('calc_total');
+  },
+
+  expense_taxes_and_charges_remove(frm) {
+    frm.trigger('calc_total');
+  },
+
   project(frm) {
     // يطبق مشروع الأب على كل الصفوف
     (frm.doc.expenses || []).forEach(r => {
@@ -250,19 +266,11 @@ frappe.ui.form.on('Expense Payment', {
 });
 
 frappe.ui.form.on('Child Expense Payment', {
-  
   amount(frm) {
     frm.trigger('calc_total');
   },
-  
-  expenses_add(frm) {
-    frm.trigger('calc_total');
-  },
-  expenses_remove(frm) {
-    frm.trigger('calc_total');
-  },
-  
-    async expense_type(frm, cdt, cdn) {
+
+  async expense_type(frm, cdt, cdn) {
     const row = locals[cdt][cdn];
     if (!row.expense_type) return;
 
@@ -304,14 +312,6 @@ frappe.ui.form.on('Expense Taxes and Charges', {
   },
 
   tax_amount(frm) {
-    frm.trigger('calc_total');
-  },
-
-  expense_taxes_and_charges_add(frm) {
-    frm.trigger('calc_total');
-  },
-
-  expense_taxes_and_charges_remove(frm) {
     frm.trigger('calc_total');
   }
 });

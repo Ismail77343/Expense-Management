@@ -100,12 +100,18 @@ class ExpensePayment(AccountsController):
         total_tax = 0
 
         for idx, row in enumerate(self.expense_taxes_and_charges or [], start=1):
-            tax_amount = flt(getattr(row, "tax_amount", 0))
+            rate = flt(getattr(row, "rate", 0))
+            tax_amount = (
+                total_amount * (rate / 100.0)
+                if rate
+                else flt(getattr(row, "tax_amount", 0))
+            )
             account_head = getattr(row, "account_head", None)
 
             if tax_amount and not account_head:
                 frappe.throw(f"Tax Row #{idx}: Account Head is required")
 
+            row.tax_amount = tax_amount
             row.total = total_amount + tax_amount
             total_tax += tax_amount
 
@@ -173,6 +179,7 @@ class ExpensePayment(AccountsController):
 
     def build_gl_preview(self):
         dims = frappe.get_all("Accounting Dimension", filters={"disabled": 0}, pluck="fieldname")
+        self._set_tax_totals()
 
         total_amount = sum(flt(r.amount) for r in (self.expenses or []))
         total_tax_amount = sum(flt(r.tax_amount) for r in (self.expense_taxes_and_charges or []))
@@ -235,26 +242,30 @@ class ExpensePayment(AccountsController):
         # 2.1) Debit: tax lines
         for row in self.expense_taxes_and_charges or []:
             tax_amount = flt(getattr(row, "tax_amount", 0))
-            if tax_amount <= 0:
+            if not tax_amount:
                 continue
 
-            gl_entries.append(
-                self.get_gl_dict(
-                    {
-                        "account": row.account_head,
-                        "debit": tax_amount,
-                        "credit": 0,
-                        "debit_in_account_currency": tax_amount,
-                        "credit_in_account_currency": 0,
-                        "cost_center": getattr(row, "cost_center", None),
-                        "project": getattr(row, "project", None),
-                        "posting_date": self.posting_date,
-                        "company": self.company,
-                        "remarks": self.remarks,
-                    },
-                    item=row,
-                )
+            tax_gl = self.get_gl_dict(
+                {
+                    "account": row.account_head,
+                    "debit": tax_amount if tax_amount > 0 else 0,
+                    "credit": abs(tax_amount) if tax_amount < 0 else 0,
+                    "debit_in_account_currency": tax_amount if tax_amount > 0 else 0,
+                    "credit_in_account_currency": abs(tax_amount) if tax_amount < 0 else 0,
+                    "cost_center": getattr(row, "cost_center", None),
+                    "project": getattr(row, "project", None),
+                    "posting_date": self.posting_date,
+                    "company": self.company,
+                    "remarks": self.remarks,
+                },
+                item=row,
             )
+
+            for d in dims:
+                if hasattr(row, d) and getattr(row, d):
+                    tax_gl[d] = getattr(row, d)
+
+            gl_entries.append(tax_gl)
 
         # 2.2) Bank charge
         bank_charge_amount = flt(self.bank_charge_amount)
